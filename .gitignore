@@ -1,0 +1,15 @@
+# Ignore executable files
+*.exe
+
+# Temporary files created by VS Code or editors
+tempCodeRunnerFile.*
+*.o
+*.obj
+*.log
+
+# IDE / Editor folders
+.vscode/
+
+# Optional: build folders
+/Debug/
+/Release/
