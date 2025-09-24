@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>学习迷雾地图 原型（Knowledge Fog Map）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!-- Cytoscape.js CDN -->
+<script src="https://unpkg.com/cytoscape@3.25.2/dist/cytoscape.min.js"></script>
+
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; height:100vh; display:flex; }
+  #left { width:320px; padding:12px; box-sizing:border-box; border-right:1px solid #eee; background:#fafafa; overflow:auto; }
+  #app { flex:1; display:flex; flex-direction:column; }
+  #cy { flex:1; background:#ffffff; }
+  h2 { margin:8px 0; font-size:16px; }
+  .control { margin-bottom:10px; }
+  input[type="text"] { width:100%; padding:8px; box-sizing:border-box; border:1px solid #ccc; border-radius:4px; }
+  button { padding:8px 10px; margin-top:6px; border-radius:4px; border:1px solid #bbb; background:#fff; cursor:pointer;}
+  .btn-primary { background:#2f86f6; color:white; border-color:#2f6fd6; }
+  .achievements { max-height:220px; overflow:auto; border:1px dashed #e6e6e6; padding:8px; border-radius:6px; background:#fff; }
+  .ach-item { padding:6px; border-bottom:1px solid #f0f0f0; font-size:13px; }
+  .node-info { margin-top:10px; border-radius:6px; padding:8px; background:#fff; border:1px solid #eee; }
+  label { font-size:13px; display:block; margin-top:6px; color:#666; }
+  .small { font-size:13px; color:#666; }
+  .hint { color:#888; font-size:12px; margin-top:6px; }
+  .topbar { display:flex; gap:8px; align-items:center; }
+  .stats { font-size:13px; color:#666; margin-left:auto; }
+  #depth { width:60px; }
+</style>
+</head>
+<body>
+
+<div id="left">
+  <h2>知识迷雾地图（原型）</h2>
+
+  <div class="control">
+    <div class="small">输入文本以尝试解锁节点（支持关键字匹配）</div>
+    <input id="userInput" type="text" placeholder="输入内容或答案，然后按 解锁" />
+    <button id="btnUnlock" class="btn-primary">解锁</button>
+    <div class="hint">提示：匹配为“关键词包含于输入”，示例关键词会在节点里定义</div>
+  </div>
+
+  <div class="control">
+    <label>从已解锁节点出发，展示 BFS 到深度：</label>
+    <input id="depth" type="number" value="2" min="1" max="6" />
+    <button id="btnBFS">显示推荐路径</button>
+  </div>
+
+  <div class="control">
+    <label>已解锁成就</label>
+    <div id="achievements" class="achievements"></div>
+  </div>
+
+  <div class="control">
+    <label>节点信息</label>
+    <div id="nodeInfo" class="node-info">点击节点查看详情或解锁后自动显示。</div>
+  </div>
+
+  <div class="control">
+    <label>操作</label>
+    <button id="btnReset">重置进度（清空本地数据）</button>
+    <div class="small hint">可以直接编辑下方内置数据（打开html文件在文本编辑器中修改 nodes/edges）</div>
+  </div>
+
+</div>
+
+<div id="app">
+  <div style="padding:8px; border-bottom:1px solid #eee; display:flex; align-items:center;">
+    <div class="topbar">
+      <strong>迷雾地图</strong>
+      <div class="stats" id="stats"></div>
+    </div>
+  </div>
+  <div id="cy"></div>
+</div>
+
+<script>
+/*
+  Learning Fog Map - prototype
+  - Nodes have: id, label, content, keywords: []
+  - Edges: source -> target
+  - State persisted in localStorage under key: 'lfm_unlocked'
+*/
+
+// ---------- sample graph data (你可以在这里扩展/修改) ----------
+const graphData = {
+  nodes: [
+    { id: 'start', label: '起点：基础概念', content: '欢迎！这是起点，输入关键词 "基础" 解锁关联知识。', keywords: ['起点','基础','start'], start: true },
+    { id: 'variables', label: '变量与类型', content: '变量是存储数据的容器，了解基本类型（int, float, string）。', keywords: ['变量','类型','var','variable'] },
+    { id: 'control', label: '流程控制', content: '流程控制：if/for/while/跳转等语句。', keywords: ['流程','控制','if','for','while','循环'] },
+    { id: 'functions', label: '函数与作用域', content: '函数封装逻辑，注意局部/全局作用域与参数传递。', keywords: ['函数','作用域','function','参数'] },
+    { id: 'oop', label: '面向对象', content: '类、对象、继承、多态是 OOP 的核心概念。', keywords: ['类','对象','继承','面向对象','oop'] },
+    { id: 'memory', label: '内存管理', content: '了解栈与堆、内存泄漏与管理策略。', keywords: ['内存','堆','栈','gc','垃圾回收'] },
+    { id: 'algorithms', label: '算法基础', content: '时间复杂度、排序、查找等算法基础。', keywords: ['算法','排序','查找','复杂度'] },
+    { id: 'datastruct', label: '数据结构', content: '数组、链表、树、图、哈希表等常见结构。', keywords: ['数组','链表','树','图','哈希'] },
+    { id: 'graph_theory', label: '图论入门', content: '图的表示、遍历（BFS/DFS）、最短路径。', keywords: ['图','bfs','dfs','最短路径','graph'] },
+    { id: 'dynamic_programming', label: '动态规划', content: '动态规划的状态定义与递推关系。', keywords: ['动态规划','dp','状态转移'] },
+    { id: 'recursion', label: '递归', content: '递归思想与栈帧展开。', keywords: ['递归','自调用','recursion'] },
+    { id: 'advanced', label: '进阶专题', content: '更多进阶：并发、网络、性能调优等。', keywords: ['并发','网络','性能'] }
+  ],
+  edges: [
+    { source:'start', target:'variables' },
+    { source:'start', target:'control' },
+    { source:'variables', target:'functions' },
+    { source:'control', target:'functions' },
+    { source:'functions', target:'oop' },
+    { source:'variables', target:'memory' },
+    { source:'algorithms', target:'datastruct' },
+    { source:'datastruct', target:'graph_theory' },
+    { source:'algorithms', target:'dynamic_programming' },
+    { source:'functions', target:'recursion' },
+    { source:'graph_theory', target:'algorithms' },
+    { source:'advanced', target:'memory' }
+  ]
+};
+
+// ---------- state & persistence ----------
+const STORAGE_KEY = 'lfm_unlocked_v1';
+let unlocked = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); // set of node ids
+
+// ensure start nodes unlocked by default
+graphData.nodes.forEach(n => {
+  if (n.start) unlocked.add(n.id);
+});
+persistUnlocked();
+
+function persistUnlocked(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(unlocked)));
+}
+
+// ---------- build cytoscape elements ----------
+const elements = [];
+for(const n of graphData.nodes){
+  elements.push({
+    data: { id: n.id, label: n.label, content: n.content, keywords: n.keywords || [] },
+    classes: unlocked.has(n.id) ? 'unlocked' : 'locked'
+  });
+}
+for(const e of graphData.edges){
+  elements.push({ data: { id: `${e.source}_${e.target}`, source: e.source, target: e.target }});
+}
+
+// ---------- cytoscape init ----------
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  elements: elements,
+  style: [
+    { selector: 'node', style: { 'label': 'data(label)', 'text-valign':'center', 'text-halign':'center', 'background-color':'#cfe8ff', 'width':'48', 'height':'48', 'font-size':'11', 'border-width':2, 'border-color':'#6ea0ff' } },
+    { selector: 'node.locked', style: { 'label': '?', 'background-color':'#ddd', 'color':'#666', 'width':'40', 'height':'40', 'font-size':'14', 'border-width':1, 'border-color':'#bbb', 'opacity':0.9 } },
+    { selector: 'node.unlocked', style: { 'label':'data(label)', 'background-color':'#ffd26b', 'border-color':'#f0a500', 'width':'58', 'height':'58' } },
+    { selector: 'edge', style: { 'width':2, 'line-color':'#e6e6e6', 'target-arrow-shape':'none', 'curve-style':'bezier' } },
+    { selector: '.bfs-highlight', style: { 'background-color':'#9be7a5', 'border-color':'#57c87a', 'width':60, 'height':60 } },
+  ],
+  layout: { name: 'cose', animate: true, idealEdgeLength: 90, nodeOverlap: 10 },
+});
+
+// fit to viewport
+cy.ready(() => {
+  cy.fit();
+  updateStats();
+});
+
+// ---------- UI wiring ----------
+const inputEl = document.getElementById('userInput');
+const btnUnlock = document.getElementById('btnUnlock');
+const achievementsEl = document.getElementById('achievements');
+const nodeInfoEl = document.getElementById('nodeInfo');
+const btnReset = document.getElementById('btnReset');
+const btnBFS = document.getElementById('btnBFS');
+const depthEl = document.getElementById('depth');
+const statsEl = document.getElementById('stats');
+
+// render achievements
+function renderAchievements(){
+  achievementsEl.innerHTML = '';
+  const arr = Array.from(unlocked);
+  for(const id of arr){
+    const node = graphData.nodes.find(n=>n.id===id);
+    if(!node) continue;
+    const div = document.createElement('div');
+    div.className = 'ach-item';
+    div.textContent = `${node.label} （${id}）`;
+    achievementsEl.appendChild(div);
+  }
+}
+
+// update stats
+function updateStats(){
+  const total = graphData.nodes.length;
+  const unlockedCount = unlocked.size;
+  statsEl.textContent = `已解锁 ${unlockedCount} / ${total}`;
+  renderAchievements();
+}
+
+function showNodeInfo(nodeId){
+  const node = graphData.nodes.find(n=>n.id===nodeId);
+  if(!node) { nodeInfoEl.innerHTML = '未找到节点'; return; }
+  const isUnlocked = unlocked.has(nodeId);
+  nodeInfoEl.innerHTML = `<strong>${node.label}</strong>
+    <div class="small">ID: ${node.id} · ${isUnlocked ? '<span style="color:green">已解锁</span>' : '<span style="color:#999">锁定</span>'}</div>
+    <div style="margin-top:8px">${isUnlocked ? (node.content || '（无内容）') : '该节点尚未解锁。尝试输入相关关键词进行解锁。'}</div>
+    ${isUnlocked ? '' : `<div class="small hint">关键词示例（仅供测试）： ${node.keywords.join(', ')}</div>`}
+  `;
+}
+
+// node click behavior
+cy.on('tap', 'node', evt => {
+  const id = evt.target.id();
+  showNodeInfo(id);
+});
+
+// unlock logic: simple keyword / substring match
+function tryUnlockFromInput(userText){
+  const t = (userText || '').toLowerCase().trim();
+  if(!t) return { unlocked: [], matched: [] };
+  const newlyUnlocked = [];
+  const matchedNodes = [];
+  for(const node of graphData.nodes){
+    if(unlocked.has(node.id)) continue; // already unlocked
+    const kws = (node.keywords||[]).map(k=>String(k).toLowerCase());
+    // match if any keyword is contained in input OR input contained in keyword
+    let match = false;
+    for(const kw of kws){
+      if(!kw) continue;
+      if(t.includes(kw) || kw.includes(t)) { match = true; break; }
+      // fuzzy: small edit distance tolerant (very small scale)
+      if(levenshtein(t, kw) <= 1 && t.length>1) { match = true; break; }
+    }
+    if(match){
+      unlocked.add(node.id);
+      newlyUnlocked.push(node.id);
+      matchedNodes.push({id: node.id, keywords: kws});
+      // update node class in cytoscape
+      const cyNode = cy.getElementById(node.id);
+      if(cyNode) cyNode.removeClass('locked').addClass('unlocked');
+    }
+  }
+  if(newlyUnlocked.length){
+    persistUnlocked();
+    updateStats();
+    // auto show first newly unlocked node info
+    showNodeInfo(newlyUnlocked[0]);
+    // highlight newly unlocked nodes briefly
+    for(const id of newlyUnlocked){
+      const el = cy.getElementById(id);
+      el.animate({ style: { 'background-color': '#9be7a5' } }, { duration: 400 });
+      setTimeout(()=>{ el.animate({ style: { 'background-color': '#ffd26b' } }, { duration: 600 }); }, 600);
+    }
+  }
+  return { unlocked: newlyUnlocked, matched: matchedNodes };
+}
+
+// BFS from unlocked nodes up to depth, mark nodes as highlighted (temporary)
+function bfsHighlight(depth){
+  // clear previous highlights
+  cy.nodes().removeClass('bfs-highlight');
+  const startIds = Array.from(unlocked);
+  if(startIds.length===0) return;
+  const maxDepth = Math.max(1, parseInt(depth)||1);
+  // build adjacency
+  const adj = {};
+  for(const n of graphData.nodes) adj[n.id] = [];
+  for(const e of graphData.edges){
+    adj[e.source].push(e.target);
+    adj[e.target].push(e.source); // treat as undirected for reachability
+  }
+  // BFS multi-source
+  const q = [];
+  const dist = {};
+  for(const s of startIds){ q.push(s); dist[s]=0; }
+  while(q.length){
+    const cur = q.shift();
+    const d = dist[cur];
+    if(d>0){ // skip marking the start nodes (they are already unlocked)
+      const el = cy.getElementById(cur);
+      if(el) el.addClass('bfs-highlight');
+    }
+    if(d>=maxDepth) continue;
+    for(const nb of adj[cur]||[]){
+      if(dist[nb]===undefined){
+        dist[nb]=d+1;
+        q.push(nb);
+      }
+    }
+  }
+}
+
+// Levenshtein distance (small, for fuzzy matching)
+function levenshtein(a,b){
+  if(a===b) return 0;
+  if(a.length===0) return b.length;
+  if(b.length===0) return a.length;
+  const matrix = [];
+  for(let i=0;i<=b.length;i++){ matrix[i]=[i]; }
+  for(let j=0;j<=a.length;j++){ matrix[0][j]=j; }
+  for(let i=1;i<=b.length;i++){
+    for(let j=1;j<=a.length;j++){
+      const cost = b.charAt(i-1)===a.charAt(j-1)?0:1;
+      matrix[i][j] = Math.min(
+        matrix[i-1][j]+1,
+        matrix[i][j-1]+1,
+        matrix[i-1][j-1]+cost
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// ---------- UI events ----------
+btnUnlock.addEventListener('click', ()=>{
+  const text = inputEl.value || '';
+  const res = tryUnlockFromInput(text);
+  if(res.unlocked.length>0){
+    alert(`解锁成功： ${res.unlocked.map(id=>graphData.nodes.find(n=>n.id===id).label).join(', ')}`);
+    inputEl.value = '';
+  } else {
+    alert('未匹配到可解锁节点，试试其他关键词或点击已解锁节点查看提示。');
+  }
+});
+
+inputEl.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter'){ btnUnlock.click(); }
+});
+
+btnBFS.addEventListener('click', ()=>{
+  const depth = parseInt(depthEl.value) || 1;
+  bfsHighlight(depth);
+});
+
+btnReset.addEventListener('click', ()=>{
+  if(!confirm('确定要重置所有进度吗？此操作会清空本地保存的已解锁状态。')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  unlocked = new Set();
+  // re-add start nodes
+  graphData.nodes.forEach(n => { if(n.start) unlocked.add(n.id); });
+  // update cytoscape classes
+  graphData.nodes.forEach(n => {
+    const el = cy.getElementById(n.id);
+    if(el){
+      el.removeClass('locked bfs-highlight unlocked');
+      el.addClass(unlocked.has(n.id) ? 'unlocked' : 'locked');
+    }
+  });
+  persistUnlocked();
+  updateStats();
+  nodeInfoEl.innerHTML = '已重置进度。';
+});
+
+// on load: show info for first start node
+(function init(){
+  renderAchievements();
+  updateStats();
+  // show the first unlocked node
+  const first = Array.from(unlocked)[0];
+  if(first) showNodeInfo(first);
+})();
+
+</script>
+</body>
+</html>

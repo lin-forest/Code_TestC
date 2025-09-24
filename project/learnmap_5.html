@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>多领域学习解锁地图</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body { display: flex; font-family: sans-serif; margin: 0; height: 100vh; }
+    #left-panel {
+      width: 320px; background: #f5f5f5; padding: 10px; overflow-y: auto;
+      border-right: 1px solid #ddd;
+    }
+    #network { flex-grow: 1; }
+    input, button { width: 100%; margin-top: 5px; padding: 5px; }
+    .unlocked-list { margin-top: 10px; font-size: 14px; }
+    .hint-box { font-size: 13px; background: #fff; border: 1px solid #ccc; padding: 5px; margin-top: 8px; border-radius: 4px; }
+    .hint-keyword { background: #e0f7fa; padding: 2px 5px; border-radius: 3px; margin: 2px; display: inline-block; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="left-panel">
+    <h3>多领域学习解锁地图</h3>
+    <input type="text" id="keywordInput" placeholder="输入关键词（如 算法、图像）">
+    <button onclick="unlock()">解锁</button>
+    <div id="hintBox" class="hint-box"></div>
+    <div class="unlocked-list">
+      <b>已解锁成就：</b>
+      <ul id="unlockedList"></ul>
+    </div>
+  </div>
+  <div id="network"></div>
+
+<script>
+  let nodes = [
+    // 算法领域
+    { id: "algo1", label: "算法入门", keywords: ["算法","algorithm"], unlocked: false, parent: null, domain: "算法" },
+    { id: "algo2", label: "排序算法", keywords: ["排序","sort"], unlocked: false, parent: "algo1", domain: "算法" },
+    { id: "algo3", label: "搜索算法", keywords: ["搜索","search","dfs","bfs"], unlocked: false, parent: "algo1", domain: "算法" },
+    { id: "algo4", label: "动态规划", keywords: ["dp","动态规划"], unlocked: false, parent: "algo3", domain: "算法" },
+    { id: "algo5", label: "贪心算法", keywords: ["贪心","greedy"], unlocked: false, parent: "algo3", domain: "算法" },
+
+    // 视觉领域
+    { id: "cv1", label: "图像基础", keywords: ["图像","image"], unlocked: false, parent: null, domain: "视觉" },
+    { id: "cv2", label: "边缘检测", keywords: ["边缘","canny"], unlocked: false, parent: "cv1", domain: "视觉" },
+    { id: "cv3", label: "特征提取", keywords: ["特征","sift"], unlocked: false, parent: "cv1", domain: "视觉" },
+    { id: "cv4", label: "目标检测", keywords: ["目标","检测","yolo"], unlocked: false, parent: "cv3", domain: "视觉" },
+
+    // 机器人领域
+    { id: "robo1", label: "运动学", keywords: ["运动学","kinematics"], unlocked: false, parent: null, domain: "机器人" },
+    { id: "robo2", label: "正运动学", keywords: ["正解","FK"], unlocked: false, parent: "robo1", domain: "机器人" },
+    { id: "robo3", label: "逆运动学", keywords: ["逆解","IK"], unlocked: false, parent: "robo1", domain: "机器人" },
+
+    // RoboMaster
+    { id: "rm1", label: "机器人竞赛规则", keywords: ["robomaster","RM规则"], unlocked: false, parent: null, domain: "RoboMaster" },
+    { id: "rm2", label: "底盘运动", keywords: ["底盘","chassis"], unlocked: false, parent: "rm1", domain: "RoboMaster" },
+    { id: "rm3", label: "打弹系统", keywords: ["发射","shoot"], unlocked: false, parent: "rm1", domain: "RoboMaster" },
+
+    // 球类运动
+    { id: "sport1", label: "篮球基础", keywords: ["篮球","basketball"], unlocked: false, parent: null, domain: "运动" },
+    { id: "sport2", label: "投篮技巧", keywords: ["投篮","shooting"], unlocked: false, parent: "sport1", domain: "运动" },
+    { id: "sport3", label: "运球技巧", keywords: ["运球","dribble"], unlocked: false, parent: "sport1", domain: "运动" }
+  ];
+
+  let edges = nodes
+    .filter(n => n.parent)
+    .map(n => ({ from: n.parent, to: n.id }));
+
+  function drawNetwork() {
+    const unlockedNodes = nodes.filter(n => n.unlocked);
+    const unlockedEdges = edges.filter(e =>
+      nodes.find(n => n.id === e.from)?.unlocked &&
+      nodes.find(n => n.id === e.to)?.unlocked
+    );
+    const data = {
+      nodes: new vis.DataSet(unlockedNodes.map(n => ({
+        id: n.id, label: n.label,
+        color: { background: "#4caf50", border: "#2e7d32" }
+      }))),
+      edges: new vis.DataSet(unlockedEdges)
+    };
+    new vis.Network(document.getElementById('network'), data, { physics: false });
+  }
+
+  function updateHintBox() {
+    const hintBox = document.getElementById('hintBox');
+    const available = nodes.filter(n =>
+      !n.unlocked &&
+      (n.parent === null || nodes.find(p => p.id === n.parent)?.unlocked)
+    );
+    hintBox.innerHTML = "<b>可解锁关键词：</b><br>" +
+      available.flatMap(n => n.keywords)
+      .map(k => `<span class="hint-keyword" onclick="quickFill('${k}')">${k}</span>`)
+      .join(" ");
+  }
+
+  function quickFill(k) {
+    document.getElementById('keywordInput').value = k;
+  }
+
+  function unlock() {
+    const input = document.getElementById('keywordInput').value.trim().toLowerCase();
+    if (!input) return;
+    let unlockedSomething = false;
+
+    nodes.forEach(node => {
+      if (!node.unlocked &&
+          (node.parent === null || nodes.find(p => p.id === node.parent)?.unlocked)) {
+        if (node.keywords.some(k => input.includes(k.toLowerCase()))) {
+          node.unlocked = true;
+          unlockedSomething = true;
+          const li = document.createElement("li");
+          li.textContent = `[${node.domain}] ${node.label}`;
+          document.getElementById('unlockedList').appendChild(li);
+        }
+      }
+    });
+
+    if (unlockedSomething) {
+      drawNetwork();
+      updateHintBox();
+    } else {
+      alert("没有匹配到可解锁的节点，或前置条件未满足！");
+    }
+    document.getElementById('keywordInput').value = "";
+  }
+
+  drawNetwork();
+  updateHintBox();
+</script>
+</body>
+</html>

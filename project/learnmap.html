@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>迷雾解锁学习地图</title>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: sans-serif;
+      margin: 0;
+      background: #1e1e1e;
+      color: white;
+    }
+    #cy {
+      width: 80vw;
+      height: 70vh;
+      margin-top: 1rem;
+      background: #2a2a2a;
+      border: 2px solid #444;
+      border-radius: 12px;
+    }
+    input {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 8px;
+      border: none;
+      outline: none;
+      width: 60%;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h2>迷雾解锁学习地图</h2>
+  <div id="cy"></div>
+  <input type="text" id="userInput" placeholder="输入关键词来解锁节点，例如: 电流">
+
+  <script>
+    // 初始知识图谱数据
+    let nodesData = [
+      { id: 'A', label: '起点', unlocked: true, keywords: [] },
+      { id: 'B', label: '电流', unlocked: false, keywords: ['电流'] },
+      { id: 'C', label: '电压', unlocked: false, keywords: ['电压'] }
+    ];
+
+    let edgesData = [
+      { source: 'A', target: 'B' },
+      { source: 'B', target: 'C' }
+    ];
+
+    let cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: [
+        ...nodesData.map(n => ({ data: { id: n.id, label: n.label } })),
+        ...edgesData.map(e => ({ data: { source: e.source, target: e.target } }))
+      ],
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'background-color': ele => getNodeColor(ele.data('id')),
+            'label': 'data(label)',
+            'color': 'white',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '14px',
+            'width': '50px',
+            'height': '50px'
+          }
+        },
+        {
+          selector: 'edge',
+          style: {
+            'line-color': '#666',
+            'width': 2
+          }
+        }
+      ],
+      layout: { name: 'breadthfirst', directed: true }
+    });
+
+    function getNodeColor(id) {
+      let node = nodesData.find(n => n.id === id);
+      return node.unlocked ? '#4caf50' : '#555'; // 解锁绿色，未解锁灰色
+    }
+
+    function refreshColors() {
+      cy.nodes().forEach(node => {
+        let color = getNodeColor(node.id());
+        node.style('background-color', color);
+      });
+    }
+
+    document.getElementById('userInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        let input = this.value.trim();
+        if (!input) return;
+
+        let unlockedAny = false;
+        nodesData.forEach(n => {
+          if (!n.unlocked && n.keywords.some(k => k === input)) {
+            n.unlocked = true;
+            unlockedAny = true;
+            alert('🎉 解锁成功: ' + n.label);
+          }
+        });
+
+        if (!unlockedAny) alert('未匹配任何节点，试试其他关键词');
+        refreshColors();
+        this.value = '';
+      }
+    });
+  </script>
+</body>
+</html>

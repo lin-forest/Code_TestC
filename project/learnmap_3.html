@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>学习解锁地图</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body { display: flex; font-family: sans-serif; margin: 0; height: 100vh; }
+    #left-panel {
+      width: 300px; background: #f5f5f5; padding: 10px; overflow-y: auto;
+      border-right: 1px solid #ddd;
+    }
+    #network { flex-grow: 1; }
+    input, button { width: 100%; margin-top: 5px; padding: 5px; }
+    .unlocked-list { margin-top: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="left-panel">
+    <h3>学习解锁地图</h3>
+    <input type="text" id="keywordInput" placeholder="输入关键词（如 基础）">
+    <button onclick="unlock()">解锁</button>
+    <div class="unlocked-list">
+      <b>已解锁成就：</b>
+      <ul id="unlockedList"></ul>
+    </div>
+  </div>
+  <div id="network"></div>
+
+<script>
+  // 定义节点和关键词
+  let nodes = [
+    { id: 1, label: "起点", unlocked: false, keywords: ["基础","start","起点"] },
+    { id: 2, label: "变量与类型", unlocked: false, keywords: ["变量","var","variable"] },
+    { id: 3, label: "流程控制", unlocked: false, keywords: ["控制","for","if"] },
+    { id: 4, label: "函数与作用域", unlocked: false, keywords: ["函数","function"] },
+    { id: 5, label: "面向对象", unlocked: false, keywords: ["类","对象","oop"] },
+    { id: 6, label: "算法基础", unlocked: false, keywords: ["算法","algorithm"] },
+    { id: 7, label: "数据结构", unlocked: false, keywords: ["数组","链表","stack"] }
+  ];
+
+  let edges = [
+    { from: 1, to: 2 }, { from: 1, to: 3 },
+    { from: 2, to: 4 }, { from: 4, to: 5 },
+    { from: 3, to: 6 }, { from: 6, to: 7 }
+  ];
+
+  let network = null;
+
+  function drawNetwork() {
+    const unlockedNodes = nodes.filter(n => n.unlocked);
+    const unlockedEdges = edges.filter(e =>
+      nodes.find(n => n.id === e.from)?.unlocked &&
+      nodes.find(n => n.id === e.to)?.unlocked
+    );
+    const data = {
+      nodes: new vis.DataSet(unlockedNodes.map(n => ({
+        id: n.id, label: n.label,
+        color: { background: "#4caf50", border: "#2e7d32" }
+      }))),
+      edges: new vis.DataSet(unlockedEdges)
+    };
+    const container = document.getElementById('network');
+    const options = { physics: false };
+    network = new vis.Network(container, data, options);
+  }
+
+  function unlock() {
+    const input = document.getElementById('keywordInput').value.trim().toLowerCase();
+    if (!input) return;
+    let unlockedSomething = false;
+
+    nodes.forEach(node => {
+      if (!node.unlocked) {
+        if (node.keywords.some(k => input.includes(k.toLowerCase()))) {
+          node.unlocked = true;
+          unlockedSomething = true;
+          const li = document.createElement("li");
+          li.textContent = node.label;
+          document.getElementById('unlockedList').appendChild(li);
+        }
+      }
+    });
+
+    if (unlockedSomething) {
+      drawNetwork();
+    } else {
+      alert("没有匹配到节点！");
+    }
+    document.getElementById('keywordInput').value = "";
+  }
+
+  drawNetwork(); // 初始画图（不会显示任何节点，直到解锁）
+</script>
+</body>
+</html>

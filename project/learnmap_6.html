@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>大型多领域学习迷雾地图（可运行原型）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!-- 使用 vis-network -->
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root{--left-w:360px;}
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; height:100vh; display:flex; }
+  #left { width:var(--left-w); padding:12px; box-sizing:border-box; border-right:1px solid #eee; background:#fafafa; overflow:auto; }
+  #app { flex:1; display:flex; flex-direction:column; }
+  #network { flex:1; background:#fff; }
+  h2 { margin:8px 0; font-size:16px; }
+  .control { margin-bottom:10px; }
+  input[type="text"] { width:100%; padding:8px; box-sizing:border-box; border:1px solid #ccc; border-radius:4px; }
+  button { padding:8px 10px; margin-top:6px; border-radius:4px; border:1px solid #bbb; background:#fff; cursor:pointer;}
+  .btn-primary { background:#2f86f6; color:white; border-color:#2f6fd6; }
+  .achievements { max-height:220px; overflow:auto; border:1px dashed #e6e6e6; padding:8px; border-radius:6px; background:#fff; }
+  .ach-item { padding:6px; border-bottom:1px solid #f0f0f0; font-size:13px; }
+  .node-info { margin-top:10px; border-radius:6px; padding:8px; background:#fff; border:1px solid #eee; white-space:pre-wrap; font-size:13px; }
+  label { font-size:13px; display:block; margin-top:6px; color:#666; }
+  .small { font-size:13px; color:#666; }
+  .hint { color:#888; font-size:12px; margin-top:6px; }
+  .hint-box { font-size:13px; background:#fff; border:1px solid #ddd; padding:8px; border-radius:6px; max-height:200px; overflow:auto; }
+  .hint-domain { margin-bottom:6px; }
+  .hint-key { display:inline-block; padding:4px 6px; margin:3px; background:#e8f6ff; border-radius:4px; cursor:pointer; font-size:13px; }
+  .stats { font-size:13px; color:#666; margin-left:auto; }
+  .topbar { display:flex; gap:8px; align-items:center; padding:8px; border-bottom:1px solid #eee; }
+  .controls-row { display:flex; gap:8px; align-items:center; }
+  .small-muted { font-size:12px; color:#999; }
+</style>
+</head>
+<body>
+
+<div id="left">
+  <h2>多领域学习迷雾地图（大规模版）</h2>
+
+  <div class="control">
+    <div class="small">输入或点击提示关键词来解锁节点（必须满足前置条件）</div>
+    <input id="userInput" type="text" placeholder="输入关键词（或点击下方提示）" />
+    <div class="controls-row">
+      <button id="btnUnlock" class="btn-primary">解锁</button>
+      <button id="btnReset">重置进度</button>
+    </div>
+    <div class="hint small-muted">提示：提示区只显示当前可以解锁（父节点已解锁或无父节点）的关键词；点击一个关键词即可直接解锁对应节点。</div>
+  </div>
+
+  <div class="control">
+    <label>当前可解锁关键词（按领域分组）</label>
+    <div id="hintBox" class="hint-box"></div>
+  </div>
+
+  <div class="control">
+    <label>已解锁成就</label>
+    <div id="achievements" class="achievements"></div>
+  </div>
+
+  <div class="control">
+    <label>节点信息</label>
+    <div id="nodeInfo" class="node-info">点击图上节点或解锁后在此查看详细说明。</div>
+  </div>
+
+  <div class="control small-muted">
+    <div>说明：</div>
+    <div>· 域 (Domain) 互不强制连通，可并行探索。</div>
+    <div>· 若你想要我缩减节点数量或导出当前数据，告诉我“导出数据”。</div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <strong>学习迷雾地图</strong>
+    <div class="stats" id="stats"></div>
+  </div>
+  <div id="network"></div>
+</div>
+
+<script>
+/*
+  大规模多领域迷雾地图原型
+  - 每个 node: { id, label, content, keywords:[], domain, parent (id|null), x,y }
+  - parent: 前置条件（必须先解锁 parent）
+  - 可点击提示关键词直接解锁（如果前置条件满足）
+  - 布局：手动按领域扇区分配 x,y，保证不碰撞
+  - 持久化：localStorage
+*/
+
+// ---------- 配置：领域与关键词（每领域20个项） ----------
+const domains = [
+  {
+    name: "算法",
+    short: "algo",
+    color: "#8dd3c7",
+    keywords: [
+      "算法","排序","快速排序","归并排序","插入排序","选择排序","堆排序","计数排序","基数排序","桶排序",
+      "搜索","二分","dfs","dfs搜索","bfs","最短路径","dijkstra","bellmanford","floyd","贪心",
+      "动态规划","dp","背包","最长公共子序列","状态转移"
+    ]
+  },
+  {
+    name: "计算机视觉",
+    short: "cv",
+    color: "#bebada",
+    keywords: [
+      "图像","image","边缘检测","canny","滤波","卷积","特征","sift","surf","orb",
+      "描述子","匹配","光流","光度学","目标检测","yolo","rcnn","分割","语义分割","实例分割",
+      "人脸识别","人脸","关键点","opencv","颜色空间","直方图"
+    ]
+  },
+  {
+    name: "机器人",
+    short: "robot",
+    color: "#fb8072",
+    keywords: [
+      "机器人","运动学","动力学","正运动学","逆运动学","路径规划","轨迹","控制","PID","鲁棒控制",
+      "传感器","IMU","编码器","里程计","SLAM","里程计融合","路径跟踪","视觉里程计","避障","力控制",
+      "机械臂","末端执行器","正则化","模型预测控制","MPC"
+    ]
+  },
+  {
+    name: "Robocon",
+    short: "robocon",
+    color: "#80b1d3",
+    keywords: [
+      "Robocon","赛事规则","底盘","减速机","编码器","传动","舵机","电机","电池","配重",
+      "遥控","无线","策略","赛道","裁判","机器人构型","调试","仿真","快速维修","备件",
+      "安全","电路保护","比赛流程","分组","现场调度"
+    ]
+  },
+  {
+    name: "RoboMaster",
+    short: "rm",
+    color: "#fdb462",
+    keywords: [
+      "robomaster","赛制","底盘调优","弹道","瞄准","上位机","电调","弹匣","发射率","射速",
+      "云台","检测模块","热管理","信号干扰","策略编写","自动补位","通信协议","CAN","UART","遥测",
+      "对抗","防护","维修站","战术","编队"
+    ]
+  },
+  {
+    name: "球类运动",
+    short: "sport",
+    color: "#b3de69",
+    keywords: [
+      "篮球","投篮","运球","防守","传球","战术","三分","罚球","控球","突破",
+      "足球","传中","射门","带球","定位球","守门","角球","越位","战术板","体能",
+      "排球","发球","拦网","防守站位","接应","轮换"
+    ]
+  },
+  {
+    name: "日常生活",
+    short: "life",
+    color: "#fccde5",
+    keywords: [
+      "饮食","烹饪","洗衣","清洁","收纳","理财","预算","省钱","健康","运动习惯",
+      "时间管理","日程","效率","阅读习惯","睡眠","减压","沟通","社交","家务","维修",
+      "旅行","行李打包","签证","交通","安全"
+    ]
+  },
+  {
+    name: "电子硬件",
+    short: "eh",
+    color: "#d9d9d9",
+    keywords: [
+      "电路","原理图","PCB","焊接","电阻","电容","二极管","三极管","MOSFET","放大器",
+      "传感器接口","ADC","DAC","电源管理","稳压","滤波器","SPI","I2C","UART","CAN",
+      "示波器","万用表","调试","EMC","走线","接地"
+    ]
+  },
+  {
+    name: "编程语言",
+    short: "pl",
+    color: "#bc80bd",
+    keywords: [
+      "Python","JavaScript","C++","C","Java","Rust","Go","Ruby","TypeScript","Shell",
+      "语法","内存管理","GC","编译","解释器","模块化","包管理","虚拟环境","调试","测试",
+      "并发","多线程","协程","异步","回调"
+    ]
+  },
+  {
+    name: "数学",
+    short: "math",
+    color: "#ccebc5",
+    keywords: [
+      "代数","线性代数","矩阵","向量","特征值","求逆","微积分","积分","导数","极限",
+      "概率","统计","分布","期望","方差","线性回归","最小二乘","优化","凸优化","拉格朗日",
+      "数值分析","傅里叶","变换","复数","矩阵分解"
+    ]
+  }
+];
+
+// ---------- helper: 生成节点（每领域20个，自动 parent 链） ----------
+const nodes = [];
+const edges = [];
+const domainCount = domains.length;
+const PER_DOMAIN = 20; // 每领域节点数（你要求至少20）
+let idCounter = 1;
+
+function createNodes() {
+  // layout: 每个领域分布在圆周不同扇区，半径按领域索引不同区间
+  const W = window.innerWidth - 400;
+  const H = window.innerHeight - 80;
+  const cx = Math.max(W/2, 600);
+  const cy = Math.max(H/2, 400);
+  const baseRadius = Math.min(cx, cy) - 150;
+
+  for (let d = 0; d < domains.length; d++){
+    const dom = domains[d];
+    // domain sector angle
+    const sectorStart = (2*Math.PI * d) / domainCount;
+    const sectorEnd = (2*Math.PI * (d+1)) / domainCount;
+    // create PER_DOMAIN nodes
+    for (let i = 0; i < PER_DOMAIN; i++){
+      const idx = i % dom.keywords.length;
+      const kw = dom.keywords[idx];
+      const nid = `${dom.short}_${i+1}`;
+      const label = `${dom.name} ${i+1}`;
+      // position: distribute along arc in sector, radius increased by i tier
+      const t = i / (PER_DOMAIN - 1);
+      const angle = sectorStart + t * (sectorEnd - sectorStart);
+      const r = baseRadius * (0.4 + 0.6 * ( (i % 5) / 4 )); // varying radius to spread
+      const x = Math.round(cx + r * Math.cos(angle));
+      const y = Math.round(cy + r * Math.sin(angle));
+      // content: brief explanation using domain and keyword
+      const content = `${label}\n领域：${dom.name}\n关键词示例：${kw}\n说明：这是 ${dom.name} 的第 ${i+1} 个示例节点（示例内容，可替换）。`;
+      // parent: make first node(s) parent=null, others parent previous node in domain
+      const parent = (i === 0) ? null : `${dom.short}_${i}`;
+      nodes.push({
+        id: nid, label, content, keywords: [kw, dom.name, `${dom.short}${i+1}`], domain: dom.name, parent, x, y, color: dom.color
+      });
+      if (parent) edges.push({ from: parent, to: nid });
+      idCounter++;
+    }
+  }
+}
+createNodes();
+
+// ---------- persistence ----------
+const STORAGE_KEY = 'large_lfm_unlocked_v1';
+let unlocked = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+
+// guarantee domain entry nodes: if none unlocked, keep none (user must input)
+persist();
+
+function persist(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(unlocked))); }
+
+// ---------- build vis data with fixed positions (prevent collisions) ----------
+const visNodes = nodes.map(n => ({
+  id: n.id,
+  label: unlocked.has(n.id) ? n.label : '?',
+  title: unlocked.has(n.id) ? n.content : '未解锁 - 点击或输入关键词解锁',
+  x: n.x,
+  y: n.y,
+  fixed: true,
+  shape: 'dot',
+  size: unlocked.has(n.id) ? 24 : 16,
+  color: {
+    background: unlocked.has(n.id) ? n.color : '#ddd',
+    border: unlocked.has(n.id) ? darken(n.color, -20) : '#aaa'
+  },
+  font: { color: unlocked.has(n.id) ? '#000' : '#666', size: unlocked.has(n.id) ? 12 : 10 }
+}));
+
+const visEdges = edges.map(e => ({ from: e.from, to: e.to, color: { color: '#e6e6e6' }, arrows: { to: false } }));
+
+// ---------- init network ----------
+const container = document.getElementById('network');
+const data = { nodes: visNodes, edges: visEdges };
+const options = {
+  interaction: { hover: true, navigationButtons: true, keyboard: true },
+  physics: { enabled: false }, // positions fixed to avoid overlap
+  nodes: { borderWidth:2, margin:10 },
+  edges: { smooth: { type: 'cubicBezier' } }
+};
+const network = new vis.Network(container, data, options);
+
+// ---------- UI wiring ----------
+const hintBox = document.getElementById('hintBox');
+const achievementsEl = document.getElementById('achievements');
+const nodeInfoEl = document.getElementById('nodeInfo');
+const statsEl = document.getElementById('stats');
+const inputEl = document.getElementById('userInput');
+const btnUnlock = document.getElementById('btnUnlock');
+const btnReset = document.getElementById('btnReset');
+
+function updateUI(){
+  // update stats
+  statsEl.textContent = `已解锁 ${unlocked.size} / ${nodes.length}`;
+  // update achievements list
+  achievementsEl.innerHTML = '';
+  Array.from(unlocked).forEach(id=>{
+    const nd = nodes.find(n=>n.id===id);
+    if(!nd) return;
+    const div = document.createElement('div');
+    div.className = 'ach-item';
+    div.textContent = `[${nd.domain}] ${nd.label} (${id})`;
+    achievementsEl.appendChild(div);
+  });
+  // update node visuals
+  nodes.forEach(n=>{
+    const is = unlocked.has(n.id);
+    const update = {
+      id: n.id,
+      label: is ? n.label : '?',
+      title: is ? n.content : '未解锁 - 点击或输入关键词解锁',
+      size: is ? 24 : 16,
+      color: { background: is ? n.color : '#ddd', border: is ? darken(n.color, -20) : '#aaa' },
+      font: { color: is ? '#000' : '#666', size: is ? 12 : 10 }
+    };
+    network.body.data.nodes.update(update);
+  });
+
+  // update hint box: only show nodes that are NOT unlocked and whose parent is null or unlocked
+  const available = nodes.filter(n => {
+    if (unlocked.has(n.id)) return false;
+    if (!n.parent) return true;
+    return unlocked.has(n.parent);
+  });
+
+  // group by domain, prioritize domains with more unlocked nodes
+  const domainMap = {};
+  available.forEach(n=>{
+    domainMap[n.domain] = domainMap[n.domain] || [];
+    domainMap[n.domain].push(n);
+  });
+
+  // sort domains by number of unlocked nodes (desc) to prioritize domains being explored
+  const domainOrder = Object.keys(domainMap).sort((a,b)=>{
+    const ua = nodes.filter(x=>x.domain===a && unlocked.has(x.id)).length;
+    const ub = nodes.filter(x=>x.domain===b && unlocked.has(x.id)).length;
+    return ub - ua;
+  });
+
+  hintBox.innerHTML = '';
+  if (domainOrder.length === 0) {
+    hintBox.innerHTML = "<div class='small-muted'>暂无可解锁节点（所有节点已解锁）</div>";
+  } else {
+    domainOrder.forEach(domainName=>{
+      const arr = domainMap[domainName];
+      const domDiv = document.createElement('div');
+      domDiv.className = 'hint-domain';
+      domDiv.innerHTML = `<strong>${domainName}</strong>： `;
+      // show up to first 15 keywords per domain to avoid太多
+      arr.slice(0, 40).forEach(n=>{
+        n.keywords.forEach(k=>{
+          const span = document.createElement('span');
+          span.className = 'hint-key';
+          span.textContent = k;
+          span.title = `${n.label} (${n.id}) — 点击直接解锁（若前置满足）`;
+          span.onclick = ()=> attemptUnlockByKeyword(k);
+          domDiv.appendChild(span);
+        });
+      });
+      hintBox.appendChild(domDiv);
+    });
+  }
+}
+
+// attempt to unlock by keyword string (click or input)
+function attemptUnlockByKeyword(raw){
+  const s = String(raw).toLowerCase().trim();
+  if (!s) return;
+  const candidates = nodes.filter(n=>{
+    if (unlocked.has(n.id)) return false;
+    if (n.parent && !unlocked.has(n.parent)) return false; // parent locked -> not available
+    return n.keywords.some(kw=> String(kw).toLowerCase() === s || String(kw).toLowerCase().includes(s) || s.includes(String(kw).toLowerCase()));
+  });
+  if (candidates.length === 0) {
+    alert('没有匹配到可解锁节点（或前置条件未满足）');
+    return;
+  }
+  // unlock all candidates
+  const unlockedNow = [];
+  candidates.forEach(n=>{
+    unlocked.add(n.id);
+    unlockedNow.push(n);
+  });
+  persist();
+  updateUI();
+  if (unlockedNow.length) {
+    const first = unlockedNow[0];
+    showNodeInfo(first.id);
+    alert('解锁：' + unlockedNow.map(x=>`[${x.domain}] ${x.label}`).join(', '));
+  }
+}
+
+// unlock by free-text input (can match substrings)
+btnUnlock.addEventListener('click', ()=>{
+  const val = (inputEl.value || '').toLowerCase().trim();
+  if (!val) return;
+  const candidates = nodes.filter(n=>{
+    if (unlocked.has(n.id)) return false;
+    if (n.parent && !unlocked.has(n.parent)) return false;
+    return n.keywords.some(kw=>{
+      const k = String(kw).toLowerCase();
+      return k.includes(val) || val.includes(k) || levenshtein(val,k) <= 1;
+    });
+  });
+  if (candidates.length === 0) {
+    alert('未匹配到可解锁的节点，或前置条件未满足。试试提示区关键词或更精确的词。');
+  } else {
+    candidates.forEach(n=>unlocked.add(n.id));
+    persist();
+    updateUI();
+    const first = candidates[0];
+    showNodeInfo(first.id);
+    alert('解锁：' + candidates.map(x=>`[${x.domain}] ${x.label}`).join(', '));
+  }
+  inputEl.value = '';
+});
+inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter') btnUnlock.click(); });
+
+// reset progress
+btnReset.addEventListener('click', ()=>{
+  if (!confirm('重置会清空本地已解锁状态，确定？')) return;
+  unlocked = new Set();
+  persist();
+  updateUI();
+  nodeInfoEl.textContent = '已重置进度。';
+});
+
+// show node info on click
+network.on('click', params=>{
+  if (params.nodes && params.nodes.length>0){
+    const id = params.nodes[0];
+    showNodeInfo(id);
+  }
+});
+
+function showNodeInfo(id){
+  const n = nodes.find(x=>x.id===id);
+  if(!n) return;
+  const is = unlocked.has(id);
+  nodeInfoEl.textContent = `${n.label}\n领域：${n.domain}\nID：${n.id}\n状态：${is ? '已解锁' : '锁定'}\n\n${is ? n.content : '该节点尚未解锁。可输入或点击提示关键词尝试解锁。'}`;
+}
+
+// ---------- utils ----------
+function darken(hex, amt){
+  // hex as #rrggbb
+  const c = hex.replace('#','');
+  const num = parseInt(c,16);
+  let r = (num >> 16) + amt;
+  let g = ((num >> 8) & 0x00FF) + amt;
+  let b = (num & 0x0000FF) + amt;
+  r = Math.max(Math.min(255,r),0);
+  g = Math.max(Math.min(255,g),0);
+  b = Math.max(Math.min(255,b),0);
+  return '#' + (r<<16 | g<<8 | b).toString(16).padStart(6,'0');
+}
+function levenshtein(a,b){
+  if(a===b) return 0;
+  if(a.length===0) return b.length;
+  if(b.length===0) return a.length;
+  const m = [];
+  for(let i=0;i<=b.length;i++) m[i]=[i];
+  for(let j=0;j<=a.length;j++) m[0][j]=j;
+  for(let i=1;i<=b.length;i++){
+    for(let j=1;j<=a.length;j++){
+      const cost = b.charAt(i-1)===a.charAt(j-1)?0:1;
+      m[i][j] = Math.min(m[i-1][j]+1, m[i][j-1]+1, m[i-1][j-1]+cost);
+    }
+  }
+  return m[b.length][a.length];
+}
+
+// initial UI
+updateUI();
+
+// expose for debugging
+window._LFM = { nodes, edges, unlocked };
+</script>
+</body>
+</html>

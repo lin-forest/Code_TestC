@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>学习解锁地图</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body { display: flex; font-family: sans-serif; margin: 0; height: 100vh; }
+    #left-panel {
+      width: 300px; background: #f5f5f5; padding: 10px; overflow-y: auto;
+      border-right: 1px solid #ddd;
+    }
+    #network { flex-grow: 1; }
+    input, button { width: 100%; margin-top: 5px; padding: 5px; }
+    .unlocked-list { margin-top: 10px; font-size: 14px; }
+    .hint-box { font-size: 13px; background: #fff; border: 1px solid #ccc; padding: 5px; margin-top: 8px; border-radius: 4px; }
+    .hint-keyword { background: #e0f7fa; padding: 2px 5px; border-radius: 3px; margin: 2px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div id="left-panel">
+    <h3>学习解锁地图</h3>
+    <input type="text" id="keywordInput" placeholder="输入关键词（如 基础）">
+    <button onclick="unlock()">解锁</button>
+    <div id="hintBox" class="hint-box"></div>
+    <div class="unlocked-list">
+      <b>已解锁成就：</b>
+      <ul id="unlockedList"></ul>
+    </div>
+  </div>
+  <div id="network"></div>
+
+<script>
+  let nodes = [
+    { id: 1, label: "起点", unlocked: false, keywords: ["基础","start","起点"] },
+    { id: 2, label: "变量与类型", unlocked: false, keywords: ["变量","var","variable"] },
+    { id: 3, label: "流程控制", unlocked: false, keywords: ["控制","for","if"] },
+    { id: 4, label: "函数与作用域", unlocked: false, keywords: ["函数","function"] },
+    { id: 5, label: "面向对象", unlocked: false, keywords: ["类","对象","oop"] },
+    { id: 6, label: "算法基础", unlocked: false, keywords: ["算法","algorithm"] },
+    { id: 7, label: "数据结构", unlocked: false, keywords: ["数组","链表","stack"] }
+  ];
+
+  let edges = [
+    { from: 1, to: 2 }, { from: 1, to: 3 },
+    { from: 2, to: 4 }, { from: 4, to: 5 },
+    { from: 3, to: 6 }, { from: 6, to: 7 }
+  ];
+
+  function drawNetwork() {
+    const unlockedNodes = nodes.filter(n => n.unlocked);
+    const unlockedEdges = edges.filter(e =>
+      nodes.find(n => n.id === e.from)?.unlocked &&
+      nodes.find(n => n.id === e.to)?.unlocked
+    );
+    const data = {
+      nodes: new vis.DataSet(unlockedNodes.map(n => ({
+        id: n.id, label: n.label,
+        color: { background: "#4caf50", border: "#2e7d32" }
+      }))),
+      edges: new vis.DataSet(unlockedEdges)
+    };
+    const container = document.getElementById('network');
+    const options = { physics: false };
+    new vis.Network(container, data, options);
+  }
+
+  function updateHintBox() {
+    const hintBox = document.getElementById('hintBox');
+    const lockedKeywords = nodes
+      .filter(n => !n.unlocked)
+      .flatMap(n => n.keywords);
+    hintBox.innerHTML = "<b>可输入关键词：</b><br>" +
+      lockedKeywords.map(k => `<span class="hint-keyword">${k}</span>`).join(" ");
+  }
+
+  function unlock() {
+    const input = document.getElementById('keywordInput').value.trim().toLowerCase();
+    if (!input) return;
+    let unlockedSomething = false;
+
+    nodes.forEach(node => {
+      if (!node.unlocked) {
+        if (node.keywords.some(k => input.includes(k.toLowerCase()))) {
+          node.unlocked = true;
+          unlockedSomething = true;
+          const li = document.createElement("li");
+          li.textContent = node.label;
+          document.getElementById('unlockedList').appendChild(li);
+        }
+      }
+    });
+
+    if (unlockedSomething) {
+      drawNetwork();
+      updateHintBox();
+    } else {
+      alert("没有匹配到节点！");
+    }
+    document.getElementById('keywordInput').value = "";
+  }
+
+  drawNetwork();
+  updateHintBox();
+</script>
+</body>
+</html>
